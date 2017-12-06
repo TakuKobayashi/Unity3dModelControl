@@ -12,12 +12,23 @@ public class FileExportEditor : EditorWindow
     {
         ConvertToPrefab,
         DissociateAnimationClip,
-        CaptureSceneImage
+        CaptureSceneImage,
+        RegisterAssetsReference
+    }
+
+    private enum SearchReferenceFileExtention{
+        prefab,
+        anim,
+        customName
     }
 
     private FileExportEditor.Mode exportMode = FileExportEditor.Mode.ConvertToPrefab;
     private ThreedObjectControlEditor.ExportImageFileExtention imageExportFileExtention = ThreedObjectControlEditor.ExportImageFileExtention.png;
+    private ThreedObjectControlEditor.ExportReferenceFileExtention referenceExportFileExtention = ThreedObjectControlEditor.ExportReferenceFileExtention.asset;
     private ThreedObjectControlEditor.SearchThreedObjectFileExtention threedObjectSearchFileExtention = ThreedObjectControlEditor.SearchThreedObjectFileExtention.fbx;
+    private string referenceSearchFilterFileExtention = SearchReferenceFileExtention.prefab.ToString();
+    private SearchReferenceFileExtention selectReferenceSearchFilterFileExtention = SearchReferenceFileExtention.prefab;
+    private string referenceExportFileName = "export";
 
     private string searchRootDirectory = "Assets/Unity3dModelControl/Prefabs/";
     private string exportDirectoryPath = "Assets/Unity3dModelControl/Prefabs/";
@@ -76,6 +87,8 @@ public class FileExportEditor : EditorWindow
         PlayerPrefs.SetString("FileExportEditor_Search_Root_Directory", searchRootDirectory);
         GUILayout.EndHorizontal();
 
+        string[] refereceValues = new string[]{"prefab", "anim", "customName"};
+
         List<string> values = new List<string>();
         Array exportImageFiles = Enum.GetValues(typeof(ThreedObjectControlEditor.SearchThreedObjectFileExtention));
         for (int i = 0; i < exportImageFiles.Length; ++i)
@@ -96,6 +109,32 @@ public class FileExportEditor : EditorWindow
             PlayerPrefs.SetInt("FileExportEditor_Search_File_Extention", (int) threedObjectSearchFileExtention);
             GUILayout.EndHorizontal();
         }
+        else if (exportMode == FileExportEditor.Mode.RegisterAssetsReference)
+        {
+            referenceSearchFilterFileExtention = PlayerPrefs.GetString("FileExportEditor_Reference_Search_Filter_File_Extention", referenceSearchFilterFileExtention);
+
+            GUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Search File Extention");
+            selectReferenceSearchFilterFileExtention = (SearchReferenceFileExtention) EditorGUILayout.EnumPopup(selectReferenceSearchFilterFileExtention);
+            GUILayout.EndHorizontal();
+
+            if(selectReferenceSearchFilterFileExtention == SearchReferenceFileExtention.customName){
+                GUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField("Input Search File Extention");
+                referenceSearchFilterFileExtention = EditorGUILayout.TextField(referenceSearchFilterFileExtention);
+                GUILayout.EndHorizontal();
+            }else{
+                referenceSearchFilterFileExtention = selectReferenceSearchFilterFileExtention.ToString();
+            }
+            PlayerPrefs.SetString("FileExportEditor_Reference_Search_Filter_File_Extention", referenceSearchFilterFileExtention);
+        }
+        if (exportMode == FileExportEditor.Mode.RegisterAssetsReference && !distoributeParentFlag)
+        {
+            GUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Export File Name");
+            referenceExportFileName = EditorGUILayout.TextField(referenceExportFileName);
+            GUILayout.EndHorizontal();
+        }
 
         GUILayout.BeginHorizontal();
         EditorGUILayout.LabelField("Export Directory");
@@ -110,8 +149,13 @@ public class FileExportEditor : EditorWindow
             imageExportFileExtention = (ThreedObjectControlEditor.ExportImageFileExtention) EditorGUILayout.EnumPopup((ThreedObjectControlEditor.ExportImageFileExtention) PlayerPrefs.GetInt("FileExportEditor_Export_File_Extention", (int)imageExportFileExtention));
             PlayerPrefs.SetInt("FileExportEditor_Export_File_Extention", (int) imageExportFileExtention);
             GUILayout.EndHorizontal();
+        }else if(exportMode == FileExportEditor.Mode.RegisterAssetsReference){
+            GUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("Export File Extention");
+            referenceExportFileExtention = (ThreedObjectControlEditor.ExportReferenceFileExtention)EditorGUILayout.EnumPopup((ThreedObjectControlEditor.ExportReferenceFileExtention)PlayerPrefs.GetInt("FileExportEditor_Export_Reference_File_Extention", (int)referenceExportFileExtention));
+            PlayerPrefs.SetInt("FileExportEditor_Export_Reference_File_Extention", (int)referenceExportFileExtention);
+            GUILayout.EndHorizontal();
         }
-
         EditorGUILayout.BeginHorizontal();
         if (GUILayout.Button(new GUIContent("Execute")))
         {
@@ -129,6 +173,11 @@ public class FileExportEditor : EditorWindow
             {
                 ThreedObjectControlEditor.DissociateAnimationClip(searchRootDirectory, exportDirectoryPath, searchFileExtention: threedObjectSearchFileExtention, distoributeParentFlag: distoributeParentFlag, hierarchyNumber: hierarchyNumber);
             }
+            else if (exportMode == FileExportEditor.Mode.RegisterAssetsReference)
+            {
+                ThreedObjectControlEditor.RegisterAssetsReference(searchRootDirectory, exportDirectoryPath, exportFilePrefix: referenceExportFileName, searchFileExtention: referenceSearchFilterFileExtention, distoributeParentFlag: distoributeParentFlag, hierarchyNumber: hierarchyNumber, exportFileExtention: referenceExportFileExtention);
+            }
+
             GUILayout.EndHorizontal();
         }
     }

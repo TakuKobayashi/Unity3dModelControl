@@ -32,6 +32,13 @@ public class ThreedObjectControlEditor
         prefab
     }
 
+    public enum ExportReferenceFileExtention
+    {
+        asset,
+        csv,
+        json
+    }
+
     public static void ConvertToPrefab(string searchRootDirectory, string exportDirectoryPath, SearchThreedObjectFileExtention searchFileExtention = SearchThreedObjectFileExtention.fbx, bool distoributeParentFlag = false, int hierarchyNumber = 1)
     {
         List<string> pathes = FindAllThreedSearchDirectory(searchRootDirectory, searchFileExtention);
@@ -57,7 +64,7 @@ public class ThreedObjectControlEditor
             generatedPrefabs.Add(generatedPrefab);
         }
         AssetDatabase.StopAssetEditing();
-        // Tell the changes to UnityEditor //
+        //変更をUnityEditorに伝える//
         for (int i = 0; i < generatedPrefabs.Count; ++i)
         {
             EditorUtility.SetDirty(generatedPrefabs[i]);
@@ -98,23 +105,25 @@ public class ThreedObjectControlEditor
         foreach (KeyValuePair<string, List<AnimationClip>> pathClips in pathToAnimationClips)
         {
             string animRootFileNamePath = SetupAndGetPlaneFilePath(exportDirectoryPath, pathClips.Key, distoributeParentFlag, hierarchyNumber);
-            for (int i = 0; i < pathClips.Value.Count;++i){
+            for (int i = 0; i < pathClips.Value.Count; ++i)
+            {
                 string animFileName = animRootFileNamePath;
-                if(i > 0){
+                if (i > 0)
+                {
                     animFileName += i.ToString();
                 }
                 animFileName += ".anim";
                 if (File.Exists(animFileName)) continue;
-                // Copy the AnimationClip and output (unique uuid)
+                // AnimationClipをコピーして出力(ユニークなuuid)
                 AnimationClip copyClip = Object.Instantiate(pathClips.Value[i]) as AnimationClip;
                 AssetDatabase.CreateAsset(copyClip, animFileName + ".tmp");
-                // Copy of AnimationClip (immobilized uuid)
+                // AnimationClipのコピー（固定化したuuid）
                 File.Copy(animFileName + ".tmp", animFileName, true);
                 File.Delete(animFileName + ".tmp");
                 generatedClips.Add(copyClip);
             }
         }
-        // Tell the changes to UnityEditor //
+        //変更をUnityEditorに伝える//
         for (int i = 0; i < generatedClips.Count; ++i)
         {
             EditorUtility.SetDirty(generatedClips[i]);
@@ -153,18 +162,18 @@ public class ThreedObjectControlEditor
 
         foreach (KeyValuePair<string, GameObject> pathToObj in pathToObjects)
         {
-            // Instantiate and adjust the orientation to a position that is easy to take
+            // Instantiateして向きを調整して取りやすい位置に
             GameObject unit = GameObject.Instantiate(pathToObj.Value, Vector3.zero, Quaternion.identity) as GameObject;
             unit.transform.eulerAngles = new Vector3(270.0f, 0.0f, 0.0f);
 
             Vector3 nowPos = mainCamera.transform.position;
             float nowSize = mainCamera.orthographicSize;
 
-            // Adjust camera
+            // カメラ調整
             mainCamera.transform.position = new Vector3(nowPos.x, nowPos.y, nowPos.z);
             mainCamera.orthographicSize = captureImageWidth;
 
-            // Generate RenderTexture and write what is shown in the current Scene to this
+            // RenderTextureを生成して、これに現在のSceneに映っているものを書き込む
             RenderTexture renderTexture = new RenderTexture(captureImageWidth, captureImageHeight, 24);
             mainCamera.targetTexture = renderTexture;
             mainCamera.Render();
@@ -183,8 +192,8 @@ public class ThreedObjectControlEditor
                 }
             }
 
-            string saveFilePath = SetupAndGetPlaneFilePath(exportDirectoryPath, pathToObj.Key, distoributeParentFlag, hierarchyNumber)+ "." + exportFileExtention.ToString();
-            // Output texture byte to file
+            string saveFilePath = SetupAndGetPlaneFilePath(exportDirectoryPath, pathToObj.Key, distoributeParentFlag, hierarchyNumber) + "." + exportFileExtention.ToString();
+            // textureのbyteをファイルに出力
             if (exportFileExtention == ExportImageFileExtention.jpg)
             {
                 File.WriteAllBytes(saveFilePath, texture2D.EncodeToJPG());
@@ -198,19 +207,19 @@ public class ThreedObjectControlEditor
                 File.WriteAllBytes(saveFilePath, texture2D.EncodeToEXR());
             }
 
-            // Post processing
+            // 後処理
             mainCamera.targetTexture = null;
             RenderTexture.active = null;
             renderTexture.Release();
 
-            // Return the camera
+            // カメラを元に戻す
             mainCamera.transform.position = nowPos;
             mainCamera.orthographicSize = nowSize;
             Resources.UnloadUnusedAssets();
             System.GC.Collect();
 
 
-            // Capture capture after throwing away
+            // キャプチャ撮った後は捨てる
             GameObject.DestroyImmediate(unit);
         }
 
@@ -218,19 +227,126 @@ public class ThreedObjectControlEditor
         System.GC.Collect();
     }
 
+    public static void RegisterAssetsReference(string searchRootDirectory,
+                                               string exportDirectoryPath,
+                                               string exportFilePrefix = "export",
+                                               bool distoributeParentFlag = false,
+                                               string searchFileExtention = "prefab",
+                                               int hierarchyNumber = 1,
+                                               ThreedObjectControlEditor.ExportReferenceFileExtention exportFileExtention = ThreedObjectControlEditor.ExportReferenceFileExtention.asset)
+    {
+        List<string> pathes = FindAllThreedSearchDirectory(searchRootDirectory, searchFileExtention);
+        Dictionary<GameObject, string> objectToPathes = new Dictionary<GameObject, string>();
+        for (int i = 0; i < pathes.Count; ++i)
+        {
+            string path = pathes[i];
+            GameObject go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (go == null) continue;
+            objectToPathes.Add(go, path);
+        }
+        CheckAndCreateDirectory(exportDirectoryPath);
+
+        Dictionary<string, List<GameObject>> filePrefixObjectList = new Dictionary<string, List<GameObject>>();
+
+        foreach (KeyValuePair<GameObject, string> objectToPath in objectToPathes)
+        {
+            string[] splitPath = objectToPath.Value.Split("/".ToCharArray());
+            string prefixFileName = exportFilePrefix;
+            if (distoributeParentFlag && splitPath.Length > hierarchyNumber)
+            {
+                prefixFileName = prefixFileName + splitPath[splitPath.Length - (hierarchyNumber + 1)];
+            }
+            string filePrefix = exportDirectoryPath + prefixFileName;
+            if (!filePrefixObjectList.ContainsKey(filePrefix))
+            {
+                filePrefixObjectList.Add(filePrefix, new List<GameObject>());
+            }
+            filePrefixObjectList[filePrefix].Add(objectToPath.Key);
+        }
+
+        foreach (KeyValuePair<string, List<GameObject>> filePrefixObject in filePrefixObjectList)
+        {
+            filePrefixObject.Value.Sort((a, b) => string.Compare(a.name, b.name));
+        }
+
+        if (exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.asset)
+        {
+            List<ScriptableGameObject> dbList = new List<ScriptableGameObject>();
+            AssetDatabase.StartAssetEditing();
+            foreach (KeyValuePair<string, List<GameObject>> filePrefixObject in filePrefixObjectList)
+            {
+                ScriptableGameObject db = LoadOrCreateDB<ScriptableGameObject>(filePrefixObject.Key + ".asset");
+                db.gameObjects = filePrefixObject.Value.ToArray();
+                dbList.Add(db);
+            }
+            AssetDatabase.StopAssetEditing();
+            //変更をUnityEditorに伝える//
+            for (int i = 0; i < dbList.Count; ++i)
+            {
+                EditorUtility.SetDirty(dbList[i]);
+            }
+        }
+        else if (exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.csv || exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.json)
+        {
+            foreach (KeyValuePair<string, List<GameObject>> filePrefixObject in filePrefixObjectList)
+            {
+                List<string> filePathes = new List<string>();
+                List<GameObject> gameObjectList = filePrefixObject.Value.ToList();
+                for (int i = 0; i < gameObjectList.Count; ++i)
+                {
+                    filePathes.Add(objectToPathes[gameObjectList[i]]);
+                }
+
+                if (exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.csv)
+                {
+                    File.WriteAllText(filePrefixObject.Key + ".csv", string.Join("\n", filePathes.ToArray()));
+                }
+                else
+                {
+                    if (filePathes.Count > 0)
+                    {
+                        File.WriteAllText(filePrefixObject.Key + ".json", "[\"" + string.Join("\",\"", filePathes.ToArray()) + "\"]");
+                    }
+                    else
+                    {
+                        File.WriteAllText(filePrefixObject.Key + ".json", "[]");
+                    }
+                }
+            }
+        }
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        Debug.Log("Register Object Count:" + objectToPathes.Count);
+    }
+
+    private static T LoadOrCreateDB<T>(string dbFilePath) where T : ScriptableObject
+    {
+        T db = AssetDatabase.LoadAssetAtPath(dbFilePath, typeof(T)) as T;
+        if (db == null)
+        {
+            db = ScriptableObject.CreateInstance<T>();
+            AssetDatabase.CreateAsset(db, dbFilePath);
+        }
+        return db;
+    }
+
     private static List<string> FindAllThreedSearchDirectory(string searchRootDirectory, SearchThreedObjectFileExtention searchFileExtention = SearchThreedObjectFileExtention.fbx)
+    {
+        string extension = searchFileExtention.ToString();
+        if (searchFileExtention == SearchThreedObjectFileExtention.threeds)
+        {
+            extension = "3ds";
+        }
+        return FindAllThreedSearchDirectory(searchRootDirectory, extension);
+    }
+
+    private static List<string> FindAllThreedSearchDirectory(string searchRootDirectory, string extension)
     {
         List<string> seachedFilePathes = new List<string>();
         string[] pathes = AssetDatabase.GetAllAssetPaths();
         for (int i = 0; i < pathes.Length; ++i)
         {
             string path = pathes[i];
-            string extension = searchFileExtention.ToString();
-            if (searchFileExtention == SearchThreedObjectFileExtention.threeds)
-            {
-                extension = "3ds";
-            }
-
             Match match = Regex.Match(path.ToLower(), @"" + searchRootDirectory.ToLower() + ".+." + extension);
             if (match.Success)
             {
@@ -240,7 +356,8 @@ public class ThreedObjectControlEditor
         return seachedFilePathes;
     }
 
-    private static string SetupAndGetPlaneFilePath(string exportDirectoryPath, string targetFilePath, bool distoributeParentFlag = false, int hierarchyNumber = 1){
+    private static string SetupAndGetPlaneFilePath(string exportDirectoryPath, string targetFilePath, bool distoributeParentFlag = false, int hierarchyNumber = 1)
+    {
         string[] splitPath = targetFilePath.Split("/".ToCharArray());
         string filename = splitPath.Last();
         string plainFilename = filename.Split(".".ToCharArray()).First();
@@ -250,10 +367,16 @@ public class ThreedObjectControlEditor
         {
             exportRootFilePath += splitPath[splitPath.Length - (hierarchyNumber + 1)] + "/";
         }
+        CheckAndCreateDirectory(exportRootFilePath);
+        return exportRootFilePath + plainFilename;
+    }
 
+    private static void CheckAndCreateDirectory(string exportRootFilePath)
+    {
         string filePath = "";
         string[] exportPathCells = exportRootFilePath.Split("/".ToCharArray());
-        for (int i = 0; i < exportPathCells.Length;++i){
+        for (int i = 0; i < exportPathCells.Length; ++i)
+        {
             if (string.IsNullOrEmpty(exportPathCells[i])) continue;
 
             filePath += exportPathCells[i] + "/";
@@ -262,7 +385,5 @@ public class ThreedObjectControlEditor
                 Directory.CreateDirectory(filePath);
             }
         }
-
-        return exportRootFilePath + plainFilename;
     }
 }
