@@ -39,6 +39,21 @@ public class ThreedObjectControlEditor
         json
     }
 
+    public enum FilterMeshRendererTypes
+    {
+        OnlySkinnedMeshRenderer,
+        OnlyMeshRenderer,
+        BothMeshRenderer
+    }
+
+    public enum AttachColliderTypes
+    {
+        BoxCollider,
+        CapsuleCollider,
+        MeshCollider,
+        SphereCollider
+    }
+
     public static void ConvertToPrefab(string searchRootDirectory, string exportDirectoryPath, SearchThreedObjectFileExtention searchFileExtention = SearchThreedObjectFileExtention.fbx, bool distoributeParentFlag = false, int hierarchyNumber = 1)
     {
         List<string> pathes = FindAllThreedSearchDirectory(searchRootDirectory, searchFileExtention);
@@ -64,7 +79,6 @@ public class ThreedObjectControlEditor
             generatedPrefabs.Add(generatedPrefab);
         }
         AssetDatabase.StopAssetEditing();
-        //変更をUnityEditorに伝える//
         for (int i = 0; i < generatedPrefabs.Count; ++i)
         {
             EditorUtility.SetDirty(generatedPrefabs[i]);
@@ -114,16 +128,13 @@ public class ThreedObjectControlEditor
                 }
                 animFileName += ".anim";
                 if (File.Exists(animFileName)) continue;
-                // AnimationClipをコピーして出力(ユニークなuuid)
                 AnimationClip copyClip = Object.Instantiate(pathClips.Value[i]) as AnimationClip;
                 AssetDatabase.CreateAsset(copyClip, animFileName + ".tmp");
-                // AnimationClipのコピー（固定化したuuid）
                 File.Copy(animFileName + ".tmp", animFileName, true);
                 File.Delete(animFileName + ".tmp");
                 generatedClips.Add(copyClip);
             }
         }
-        //変更をUnityEditorに伝える//
         for (int i = 0; i < generatedClips.Count; ++i)
         {
             EditorUtility.SetDirty(generatedClips[i]);
@@ -162,18 +173,18 @@ public class ThreedObjectControlEditor
 
         foreach (KeyValuePair<string, GameObject> pathToObj in pathToObjects)
         {
-            // Instantiateして向きを調整して取りやすい位置に
+            // Instantiate and adjust the orientation to a position that is easy to take
             GameObject unit = GameObject.Instantiate(pathToObj.Value, Vector3.zero, Quaternion.identity) as GameObject;
             unit.transform.eulerAngles = new Vector3(270.0f, 0.0f, 0.0f);
 
             Vector3 nowPos = mainCamera.transform.position;
             float nowSize = mainCamera.orthographicSize;
 
-            // カメラ調整
+            // adjustment camera
             mainCamera.transform.position = new Vector3(nowPos.x, nowPos.y, nowPos.z);
             mainCamera.orthographicSize = captureImageWidth;
 
-            // RenderTextureを生成して、これに現在のSceneに映っているものを書き込む
+            // Generate RenderTexture and write what is shown in the current Scene to this
             RenderTexture renderTexture = new RenderTexture(captureImageWidth, captureImageHeight, 24);
             mainCamera.targetTexture = renderTexture;
             mainCamera.Render();
@@ -193,7 +204,7 @@ public class ThreedObjectControlEditor
             }
 
             string saveFilePath = SetupAndGetPlaneFilePath(exportDirectoryPath, pathToObj.Key, distoributeParentFlag, hierarchyNumber) + "." + exportFileExtention.ToString();
-            // textureのbyteをファイルに出力
+            // Output texture byte to file
             if (exportFileExtention == ExportImageFileExtention.jpg)
             {
                 File.WriteAllBytes(saveFilePath, texture2D.EncodeToJPG());
@@ -207,19 +218,15 @@ public class ThreedObjectControlEditor
                 File.WriteAllBytes(saveFilePath, texture2D.EncodeToEXR());
             }
 
-            // 後処理
             mainCamera.targetTexture = null;
             RenderTexture.active = null;
             renderTexture.Release();
 
-            // カメラを元に戻す
             mainCamera.transform.position = nowPos;
             mainCamera.orthographicSize = nowSize;
             Resources.UnloadUnusedAssets();
             System.GC.Collect();
 
-
-            // キャプチャ撮った後は捨てる
             GameObject.DestroyImmediate(unit);
         }
 
@@ -280,7 +287,6 @@ public class ThreedObjectControlEditor
                 dbList.Add(db);
             }
             AssetDatabase.StopAssetEditing();
-            //変更をUnityEditorに伝える//
             for (int i = 0; i < dbList.Count; ++i)
             {
                 EditorUtility.SetDirty(dbList[i]);
@@ -317,6 +323,217 @@ public class ThreedObjectControlEditor
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
         Debug.Log("Register Object Count:" + objectToPathes.Count);
+    }
+
+    public static void AttachColliderMaxVolumn(string searchRootDirectory,
+                                               ThreedObjectControlEditor.FilterMeshRendererTypes filterMeshRendererTypes = ThreedObjectControlEditor.FilterMeshRendererTypes.OnlySkinnedMeshRenderer,
+                                               ThreedObjectControlEditor.AttachColliderTypes attachColliderTypes = ThreedObjectControlEditor.AttachColliderTypes.BoxCollider)
+    {
+        List<string> pathes = FindAllThreedSearchDirectory(searchRootDirectory, SearchThreedObjectFileExtention.prefab);
+        Dictionary<GameObject, Renderer> objectRenderers = new Dictionary<GameObject, Renderer>();
+        for (int i = 0; i < pathes.Count; ++i)
+        {
+            string path = pathes[i];
+            GameObject go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (go == null) continue;
+            List<Renderer> renderers = LoadMeshRenderers(go, filterMeshRendererTypes);
+            if (renderers == null || renderers.Count <= 0) continue;
+            float maxVolumn = float.MinValue;
+            int targetIndex = -1;
+            for (int j = 0; j < renderers.Count; ++j)
+            {
+                Vector3 cubeSize = renderers[j].bounds.extents * 2;
+                if (maxVolumn < (cubeSize.x * cubeSize.y * cubeSize.z))
+                {
+                    maxVolumn = (cubeSize.x * cubeSize.y * cubeSize.z);
+                    targetIndex = j;
+                }
+            }
+            if (targetIndex < 0) continue;
+            objectRenderers.Add(go, renderers[targetIndex]);
+        }
+        AssetDatabase.StartAssetEditing();
+        foreach(KeyValuePair<GameObject, Renderer> objectRenderer in objectRenderers)
+        {
+            GameObject go = objectRenderer.Key;
+            Renderer meshRenderer = objectRenderer.Value;
+            Bounds bounds = meshRenderer.bounds;
+            if (attachColliderTypes == ThreedObjectControlEditor.AttachColliderTypes.BoxCollider)
+            {
+                BoxCollider boxCollider = go.GetComponent<BoxCollider>();
+                if (boxCollider.Equals(null))
+                {
+                    boxCollider = go.AddComponent<BoxCollider>();
+                }
+                boxCollider.center = bounds.center;
+                boxCollider.size = bounds.extents * 2;
+            }
+            else if (attachColliderTypes == ThreedObjectControlEditor.AttachColliderTypes.CapsuleCollider)
+            {
+                CapsuleCollider capsuleCollider = go.GetComponent<CapsuleCollider>();
+                if (capsuleCollider.Equals(null))
+                {
+                    capsuleCollider = go.AddComponent<CapsuleCollider>();
+                }
+                capsuleCollider.center = bounds.center;
+                capsuleCollider.height = Mathf.Abs(bounds.extents.y * 2);
+                capsuleCollider.radius = Mathf.Max(Mathf.Abs(bounds.extents.x), Mathf.Abs(bounds.extents.z));
+            }
+            else if (attachColliderTypes == ThreedObjectControlEditor.AttachColliderTypes.SphereCollider)
+            {
+                SphereCollider sphereCollider = go.GetComponent<SphereCollider>();
+                if (sphereCollider.Equals(null))
+                {
+                    sphereCollider = go.AddComponent<SphereCollider>();
+                }
+                sphereCollider.center = bounds.center;
+                sphereCollider.radius = Mathf.Max(Mathf.Max(Mathf.Abs(bounds.extents.x), Mathf.Abs(bounds.extents.y)), Mathf.Abs(bounds.extents.z));
+            }
+            else if (attachColliderTypes == ThreedObjectControlEditor.AttachColliderTypes.MeshCollider)
+            {
+                MeshCollider meshCollider = go.GetComponent<MeshCollider>();
+                if (meshCollider.Equals(null))
+                {
+                    meshCollider = go.AddComponent<MeshCollider>();
+                }
+            }
+        }
+
+        AssetDatabase.StopAssetEditing();
+        foreach (KeyValuePair<GameObject, Renderer> objectMeshRenderer in objectRenderers)
+        {
+            EditorUtility.SetDirty(objectMeshRenderer.Key);
+        }
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        Debug.Log("Attach and edit the max volumn colliders:" + objectRenderers.Count);
+    }
+
+    public static void AttachColliderWiddestSize(string searchRootDirectory,
+                                                 ThreedObjectControlEditor.FilterMeshRendererTypes filterMeshRendererTypes = ThreedObjectControlEditor.FilterMeshRendererTypes.OnlySkinnedMeshRenderer,
+                                                 ThreedObjectControlEditor.AttachColliderTypes attachColliderTypes = ThreedObjectControlEditor.AttachColliderTypes.BoxCollider){
+        List<string> pathes = FindAllThreedSearchDirectory(searchRootDirectory, SearchThreedObjectFileExtention.prefab);
+        Dictionary<GameObject, KeyValuePair<Vector3, Vector3>> objectMinMaxPositions = new Dictionary<GameObject, KeyValuePair<Vector3, Vector3>>();
+        for (int i = 0; i < pathes.Count; ++i)
+        {
+            string path = pathes[i];
+            GameObject go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+            if (go == null) continue;
+            List<Renderer> renderers = LoadMeshRenderers(go, filterMeshRendererTypes);
+            if (renderers == null || renderers.Count <= 0) continue;
+            Vector3 minimumPosition = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+            Vector3 maximumPosition = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+            bool isAttachCollider = false;
+            for (int j = 0; j < renderers.Count;++j){
+                isAttachCollider = true;
+
+                Bounds bounds = renderers[j].bounds;
+                if (minimumPosition.x > bounds.center.x - bounds.extents.x)
+                {
+                    minimumPosition.x = bounds.center.x - bounds.extents.x;
+                }
+                if (minimumPosition.y > bounds.center.y - bounds.extents.y)
+                {
+                    minimumPosition.y = bounds.center.y - bounds.extents.y;
+                }
+                if (minimumPosition.z > bounds.center.z - bounds.extents.z)
+                {
+                    minimumPosition.z = bounds.center.z - bounds.extents.z;
+                }
+                if (maximumPosition.x < bounds.center.x + bounds.extents.x)
+                {
+                    maximumPosition.x = bounds.center.x + bounds.extents.x;
+                }
+                if (maximumPosition.y < bounds.center.y + bounds.extents.y)
+                {
+                    maximumPosition.y = bounds.center.y + bounds.extents.y;
+                }
+                if (maximumPosition.z < bounds.center.z + bounds.extents.z)
+                {
+                    maximumPosition.z = bounds.center.z + bounds.extents.z;
+                }
+            }
+            if(isAttachCollider){
+                objectMinMaxPositions.Add(go, new KeyValuePair<Vector3, Vector3>(minimumPosition, maximumPosition));
+            }
+        }
+
+        AssetDatabase.StartAssetEditing();
+        foreach (KeyValuePair<GameObject, KeyValuePair<Vector3, Vector3>> objectMinMaxPosition in objectMinMaxPositions)
+        {
+            GameObject go = objectMinMaxPosition.Key;
+            KeyValuePair<Vector3, Vector3> minmaxPosition = objectMinMaxPosition.Value;
+            if (attachColliderTypes == ThreedObjectControlEditor.AttachColliderTypes.BoxCollider)
+            {
+                BoxCollider boxCollider = go.GetComponent<BoxCollider>();
+                if (boxCollider.Equals(null))
+                {
+                    boxCollider = go.AddComponent<BoxCollider>();
+                }
+                boxCollider.center = (minmaxPosition.Value + minmaxPosition.Key) / 2;
+                boxCollider.size = (minmaxPosition.Value - minmaxPosition.Key);
+            }
+            else if (attachColliderTypes == ThreedObjectControlEditor.AttachColliderTypes.CapsuleCollider)
+            {
+                CapsuleCollider capsuleCollider = go.GetComponent<CapsuleCollider>();
+                if (capsuleCollider.Equals(null))
+                {
+                    capsuleCollider = go.AddComponent<CapsuleCollider>();
+                }
+                capsuleCollider.center = (minmaxPosition.Value + minmaxPosition.Key) / 2;
+                capsuleCollider.height = Mathf.Abs(minmaxPosition.Value.y - minmaxPosition.Key.y);
+                Vector3 diff = minmaxPosition.Value - minmaxPosition.Key;
+                capsuleCollider.radius = Mathf.Max(Mathf.Max(Mathf.Abs(diff.x / 2), Mathf.Abs(diff.y / 2)), Mathf.Abs(diff.z / 2));
+            }
+            else if (attachColliderTypes == ThreedObjectControlEditor.AttachColliderTypes.SphereCollider)
+            {
+                SphereCollider sphereCollider = go.GetComponent<SphereCollider>();
+                if (sphereCollider.Equals(null))
+                {
+                    sphereCollider = go.AddComponent<SphereCollider>();
+                }
+                sphereCollider.center = (minmaxPosition.Value + minmaxPosition.Key) / 2;
+                Vector3 diff = minmaxPosition.Value - minmaxPosition.Key;
+                sphereCollider.radius = Mathf.Max(Mathf.Abs(diff.x / 2), Mathf.Abs(diff.z / 2));
+            }
+            else if (attachColliderTypes == ThreedObjectControlEditor.AttachColliderTypes.MeshCollider)
+            {
+                MeshCollider meshCollider = go.GetComponent<MeshCollider>();
+                if (meshCollider.Equals(null))
+                {
+                    meshCollider = go.AddComponent<MeshCollider>();
+                }
+            }
+        }
+        AssetDatabase.StopAssetEditing();
+        foreach (KeyValuePair<GameObject, KeyValuePair<Vector3, Vector3>> objectMinMaxPosition in objectMinMaxPositions)
+        {
+            EditorUtility.SetDirty(objectMinMaxPosition.Key);
+        }
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        Debug.Log("Attach and edit the widdest colliders:" + objectMinMaxPositions.Count);
+    }
+
+    private static List<Renderer> LoadMeshRenderers(GameObject go, ThreedObjectControlEditor.FilterMeshRendererTypes filterMeshRendererTypes = ThreedObjectControlEditor.FilterMeshRendererTypes.OnlySkinnedMeshRenderer){
+        List<Renderer> renderers = new List<Renderer>();
+        if (filterMeshRendererTypes == ThreedObjectControlEditor.FilterMeshRendererTypes.OnlySkinnedMeshRenderer || filterMeshRendererTypes == ThreedObjectControlEditor.FilterMeshRendererTypes.BothMeshRenderer)
+        {
+            List<SkinnedMeshRenderer> skinnedMeshRenderers = FindAllCompomentInChildren<SkinnedMeshRenderer>(go.transform);
+            for (int j = 0; j < skinnedMeshRenderers.Count; ++j)
+            {
+                renderers.Add(skinnedMeshRenderers[j]);
+            }
+        }
+        if (filterMeshRendererTypes == ThreedObjectControlEditor.FilterMeshRendererTypes.OnlyMeshRenderer || filterMeshRendererTypes == ThreedObjectControlEditor.FilterMeshRendererTypes.BothMeshRenderer)
+        {
+            List<MeshRenderer> meshRenderers = FindAllCompomentInChildren<MeshRenderer>(go.transform);
+            for (int j = 0; j < meshRenderers.Count; ++j)
+            {
+                renderers.Add(meshRenderers[j]);
+            }
+        }
+        return renderers;
     }
 
     private static T LoadOrCreateDB<T>(string dbFilePath) where T : ScriptableObject
@@ -385,5 +602,25 @@ public class ThreedObjectControlEditor
                 Directory.CreateDirectory(filePath);
             }
         }
+    }
+
+    private static List<T> FindAllCompomentInChildren<T>(Transform root) where T : class
+    {
+        List<T> compoments = new List<T>();
+        for (int i = 0; i < root.childCount; ++i)
+        {
+            Transform t = root.GetChild(i);
+            T compoment = t.GetComponent<T>();
+            if (!compoment.Equals(null))
+            {
+                compoments.Add(compoment);
+            }
+
+            // It seems that null of GetCompoment differs from return null ...
+            List<T> childCompoments = FindAllCompomentInChildren<T>(t);
+            compoments.AddRange(childCompoments);
+        }
+
+        return compoments;
     }
 }
