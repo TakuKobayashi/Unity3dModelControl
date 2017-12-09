@@ -16,22 +16,15 @@ public class FileExportEditor : EditorWindow
         RegisterAssetsReference
     }
 
-    private enum SearchReferenceFileExtention{
-        prefab,
-        anim,
-        customName
-    }
-
     private FileExportEditor.Mode exportMode = FileExportEditor.Mode.ConvertToPrefab;
     private ThreedObjectControlEditor.ExportImageFileExtention imageExportFileExtention = ThreedObjectControlEditor.ExportImageFileExtention.png;
     private ThreedObjectControlEditor.ExportReferenceFileExtention referenceExportFileExtention = ThreedObjectControlEditor.ExportReferenceFileExtention.asset;
     private ThreedObjectControlEditor.SearchThreedObjectFileExtention threedObjectSearchFileExtention = ThreedObjectControlEditor.SearchThreedObjectFileExtention.fbx;
-    private string referenceSearchFilterFileExtention = SearchReferenceFileExtention.prefab.ToString();
-    private SearchReferenceFileExtention selectReferenceSearchFilterFileExtention = SearchReferenceFileExtention.prefab;
+    private ThreedObjectControlEditor.RegisterFileType referenceSearchFilterFileExtention = ThreedObjectControlEditor.RegisterFileType.all;
     private string referenceExportFileName = "export";
 
-    private string searchRootDirectory = "Assets/Unity3dModelControl/Prefabs/";
-    private string exportDirectoryPath = "Assets/Unity3dModelControl/Prefabs/";
+    private string searchRootDirectory = "Assets/Prefabs/";
+    private string exportDirectoryPath = "Assets/Prefabs/";
     private int captureImageWidth = 128;
     private int captureImageHeight = 128;
     private int hierarchyNumber = 1;
@@ -87,8 +80,6 @@ public class FileExportEditor : EditorWindow
         PlayerPrefs.SetString("FileExportEditor_Search_Root_Directory", searchRootDirectory);
         GUILayout.EndHorizontal();
 
-        string[] refereceValues = new string[]{"prefab", "anim", "customName"};
-
         List<string> values = new List<string>();
         Array exportImageFiles = Enum.GetValues(typeof(ThreedObjectControlEditor.SearchThreedObjectFileExtention));
         for (int i = 0; i < exportImageFiles.Length; ++i)
@@ -111,22 +102,13 @@ public class FileExportEditor : EditorWindow
         }
         else if (exportMode == FileExportEditor.Mode.RegisterAssetsReference)
         {
-            referenceSearchFilterFileExtention = PlayerPrefs.GetString("FileExportEditor_Reference_Search_Filter_File_Extention", referenceSearchFilterFileExtention);
+            referenceSearchFilterFileExtention = (ThreedObjectControlEditor.RegisterFileType) PlayerPrefs.GetInt("FileExportEditor_Reference_Search_Filter_File_Extention", (int) referenceSearchFilterFileExtention);
 
             GUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Search File Extention");
-            selectReferenceSearchFilterFileExtention = (SearchReferenceFileExtention) EditorGUILayout.EnumPopup(selectReferenceSearchFilterFileExtention);
+            referenceSearchFilterFileExtention = (ThreedObjectControlEditor.RegisterFileType) EditorGUILayout.EnumPopup(referenceSearchFilterFileExtention);
             GUILayout.EndHorizontal();
-
-            if(selectReferenceSearchFilterFileExtention == SearchReferenceFileExtention.customName){
-                GUILayout.BeginHorizontal();
-                EditorGUILayout.LabelField("Input Search File Extention");
-                referenceSearchFilterFileExtention = EditorGUILayout.TextField(referenceSearchFilterFileExtention);
-                GUILayout.EndHorizontal();
-            }else{
-                referenceSearchFilterFileExtention = selectReferenceSearchFilterFileExtention.ToString();
-            }
-            PlayerPrefs.SetString("FileExportEditor_Reference_Search_Filter_File_Extention", referenceSearchFilterFileExtention);
+            PlayerPrefs.SetInt("FileExportEditor_Reference_Search_Filter_File_Extention", (int) referenceSearchFilterFileExtention);
         }
         if (exportMode == FileExportEditor.Mode.RegisterAssetsReference && !distoributeParentFlag)
         {
@@ -175,7 +157,7 @@ public class FileExportEditor : EditorWindow
             }
             else if (exportMode == FileExportEditor.Mode.RegisterAssetsReference)
             {
-                ThreedObjectControlEditor.RegisterAssetsReference(searchRootDirectory, exportDirectoryPath, exportFilePrefix: referenceExportFileName, searchFileExtention: referenceSearchFilterFileExtention, distoributeParentFlag: distoributeParentFlag, hierarchyNumber: hierarchyNumber, exportFileExtention: referenceExportFileExtention);
+                ThreedObjectControlEditor.RegisterAssetsReference(searchRootDirectory, exportDirectoryPath, exportFilePrefix: referenceExportFileName, registerFileType: referenceSearchFilterFileExtention, distoributeParentFlag: distoributeParentFlag, hierarchyNumber: hierarchyNumber, exportFileExtention: referenceExportFileExtention);
             }
 
             GUILayout.EndHorizontal();

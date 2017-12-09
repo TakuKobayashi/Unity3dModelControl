@@ -1,10 +1,11 @@
 ﻿using UnityEngine;
 using UnityEditor;
-using System.Collections;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Reflection;
 
 public class ThreedObjectControlEditor
 {
@@ -52,6 +53,15 @@ public class ThreedObjectControlEditor
         CapsuleCollider,
         MeshCollider,
         SphereCollider
+    }
+
+    public enum RegisterFileType
+    {
+        all,
+        prefab,
+        anim,
+        sprite,
+        audio
     }
 
     public static void ConvertToPrefab(string searchRootDirectory, string exportDirectoryPath, SearchThreedObjectFileExtention searchFileExtention = SearchThreedObjectFileExtention.fbx, bool distoributeParentFlag = false, int hierarchyNumber = 1)
@@ -119,16 +129,14 @@ public class ThreedObjectControlEditor
         foreach (KeyValuePair<string, List<AnimationClip>> pathClips in pathToAnimationClips)
         {
             string animRootFileNamePath = SetupAndGetPlaneFilePath(exportDirectoryPath, pathClips.Key, distoributeParentFlag, hierarchyNumber);
-            for (int i = 0; i < pathClips.Value.Count; ++i)
-            {
+            for (int i = 0; i < pathClips.Value.Count;++i){
                 string animFileName = animRootFileNamePath;
-                if (i > 0)
-                {
+                if(i > 0){
                     animFileName += i.ToString();
                 }
                 animFileName += ".anim";
                 if (File.Exists(animFileName)) continue;
-                AnimationClip copyClip = Object.Instantiate(pathClips.Value[i]) as AnimationClip;
+                AnimationClip copyClip = AnimationClip.Instantiate(pathClips.Value[i]);
                 AssetDatabase.CreateAsset(copyClip, animFileName + ".tmp");
                 File.Copy(animFileName + ".tmp", animFileName, true);
                 File.Delete(animFileName + ".tmp");
@@ -203,8 +211,8 @@ public class ThreedObjectControlEditor
                 }
             }
 
-            string saveFilePath = SetupAndGetPlaneFilePath(exportDirectoryPath, pathToObj.Key, distoributeParentFlag, hierarchyNumber) + "." + exportFileExtention.ToString();
             // Output texture byte to file
+            string saveFilePath = SetupAndGetPlaneFilePath(exportDirectoryPath, pathToObj.Key, distoributeParentFlag, hierarchyNumber)+ "." + exportFileExtention.ToString();
             if (exportFileExtention == ExportImageFileExtention.jpg)
             {
                 File.WriteAllBytes(saveFilePath, texture2D.EncodeToJPG());
@@ -237,84 +245,85 @@ public class ThreedObjectControlEditor
     public static void RegisterAssetsReference(string searchRootDirectory,
                                                string exportDirectoryPath,
                                                string exportFilePrefix = "export",
+                                               RegisterFileType registerFileType = RegisterFileType.all,
                                                bool distoributeParentFlag = false,
-                                               string searchFileExtention = "prefab",
                                                int hierarchyNumber = 1,
                                                ThreedObjectControlEditor.ExportReferenceFileExtention exportFileExtention = ThreedObjectControlEditor.ExportReferenceFileExtention.asset)
     {
-        List<string> pathes = FindAllThreedSearchDirectory(searchRootDirectory, searchFileExtention);
-        Dictionary<GameObject, string> objectToPathes = new Dictionary<GameObject, string>();
+        Type filterClassType = typeof(UnityEngine.Object);
+        string filterWord = "*";
+        if(registerFileType == RegisterFileType.prefab){
+            filterWord = "prefab";
+            filterClassType = typeof(GameObject);
+        }else if(registerFileType == RegisterFileType.anim){
+            filterWord = "anim";
+            filterClassType = typeof(AnimationClip);
+        }else if(registerFileType == RegisterFileType.audio){
+            filterClassType = typeof(AudioClip);
+        }else if (registerFileType == RegisterFileType.sprite)
+        {
+            filterClassType = typeof(Sprite);
+        }
+        List<string> pathes = FindAllThreedSearchDirectory(searchRootDirectory, filterWord);
+        Dictionary<UnityEngine.Object, string> objectToPathes = new Dictionary<UnityEngine.Object, string>();
         for (int i = 0; i < pathes.Count; ++i)
         {
             string path = pathes[i];
-            GameObject go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-            if (go == null) continue;
-            objectToPathes.Add(go, path);
+            UnityEngine.Object obj = AssetDatabase.LoadAssetAtPath(path, filterClassType);
+            if (obj == null) continue;
+            objectToPathes.Add(obj, path);
         }
         CheckAndCreateDirectory(exportDirectoryPath);
 
-        Dictionary<string, List<GameObject>> filePrefixObjectList = new Dictionary<string, List<GameObject>>();
+        Dictionary<string, List<UnityEngine.Object>> filePrefixObjectList = new Dictionary<string, List<UnityEngine.Object>>();
 
-        foreach (KeyValuePair<GameObject, string> objectToPath in objectToPathes)
+        foreach (KeyValuePair<UnityEngine.Object, string> objectToPath in objectToPathes)
         {
             string[] splitPath = objectToPath.Value.Split("/".ToCharArray());
             string prefixFileName = exportFilePrefix;
             if (distoributeParentFlag && splitPath.Length > hierarchyNumber)
             {
-                prefixFileName = prefixFileName + splitPath[splitPath.Length - (hierarchyNumber + 1)];
+                prefixFileName = splitPath[splitPath.Length - (hierarchyNumber + 1)];
             }
             string filePrefix = exportDirectoryPath + prefixFileName;
-            if (!filePrefixObjectList.ContainsKey(filePrefix))
-            {
-                filePrefixObjectList.Add(filePrefix, new List<GameObject>());
+            if(!filePrefixObjectList.ContainsKey(filePrefix)){
+                filePrefixObjectList.Add(filePrefix,  new List<UnityEngine.Object>());
             }
             filePrefixObjectList[filePrefix].Add(objectToPath.Key);
         }
 
-        foreach (KeyValuePair<string, List<GameObject>> filePrefixObject in filePrefixObjectList)
+        foreach (KeyValuePair<string, List<UnityEngine.Object>> filePrefixObject in filePrefixObjectList)
         {
             filePrefixObject.Value.Sort((a, b) => string.Compare(a.name, b.name));
         }
 
-        if (exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.asset)
-        {
-            List<ScriptableGameObject> dbList = new List<ScriptableGameObject>();
+        if(exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.asset){
+            List<UnityEngine.Object> dbList = new List<UnityEngine.Object>();
             AssetDatabase.StartAssetEditing();
-            foreach (KeyValuePair<string, List<GameObject>> filePrefixObject in filePrefixObjectList)
-            {
-                ScriptableGameObject db = LoadOrCreateDB<ScriptableGameObject>(filePrefixObject.Key + ".asset");
-                db.gameObjects = filePrefixObject.Value.ToArray();
+            foreach(KeyValuePair<string, List<UnityEngine.Object>> filePrefixObject in filePrefixObjectList){
+                UnityScriptableObject db = LoadOrCreateDB(filePrefixObject.Key + ".asset", typeof(UnityScriptableObject)) as UnityScriptableObject;
+                db.SetObjects(filePrefixObject.Value.ToArray());
                 dbList.Add(db);
             }
             AssetDatabase.StopAssetEditing();
-            for (int i = 0; i < dbList.Count; ++i)
-            {
+            for (int i = 0; i < dbList.Count;++i){
                 EditorUtility.SetDirty(dbList[i]);
             }
-        }
-        else if (exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.csv || exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.json)
-        {
-            foreach (KeyValuePair<string, List<GameObject>> filePrefixObject in filePrefixObjectList)
+        }else if(exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.csv || exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.json){
+            foreach (KeyValuePair<string, List<UnityEngine.Object>> filePrefixObject in filePrefixObjectList)
             {
                 List<string> filePathes = new List<string>();
-                List<GameObject> gameObjectList = filePrefixObject.Value.ToList();
-                for (int i = 0; i < gameObjectList.Count; ++i)
-                {
+                List<UnityEngine.Object> gameObjectList = filePrefixObject.Value.ToList();
+                for (int i = 0;i < gameObjectList.Count;++i){
                     filePathes.Add(objectToPathes[gameObjectList[i]]);
                 }
 
-                if (exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.csv)
-                {
+                if(exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.csv){
                     File.WriteAllText(filePrefixObject.Key + ".csv", string.Join("\n", filePathes.ToArray()));
-                }
-                else
-                {
-                    if (filePathes.Count > 0)
-                    {
+                }else{
+                    if(filePathes.Count > 0){
                         File.WriteAllText(filePrefixObject.Key + ".json", "[\"" + string.Join("\",\"", filePathes.ToArray()) + "\"]");
-                    }
-                    else
-                    {
+                    }else{
                         File.WriteAllText(filePrefixObject.Key + ".json", "[]");
                     }
                 }
@@ -536,7 +545,18 @@ public class ThreedObjectControlEditor
         return renderers;
     }
 
-    private static T LoadOrCreateDB<T>(string dbFilePath) where T : ScriptableObject
+    public static UnityEngine.Object LoadOrCreateDB(string dbFilePath, Type type)
+    {
+        UnityEngine.Object db = AssetDatabase.LoadAssetAtPath(dbFilePath, type);
+        if (db == null)
+        {
+            db = ScriptableObject.CreateInstance(type);
+            AssetDatabase.CreateAsset(db, dbFilePath);
+        }
+        return db;
+    }
+
+    public static T LoadOrCreateDB<T>(string dbFilePath) where T : ScriptableObject
     {
         T db = AssetDatabase.LoadAssetAtPath(dbFilePath, typeof(T)) as T;
         if (db == null)
@@ -573,8 +593,7 @@ public class ThreedObjectControlEditor
         return seachedFilePathes;
     }
 
-    private static string SetupAndGetPlaneFilePath(string exportDirectoryPath, string targetFilePath, bool distoributeParentFlag = false, int hierarchyNumber = 1)
-    {
+    private static string SetupAndGetPlaneFilePath(string exportDirectoryPath, string targetFilePath, bool distoributeParentFlag = false, int hierarchyNumber = 1){
         string[] splitPath = targetFilePath.Split("/".ToCharArray());
         string filename = splitPath.Last();
         string plainFilename = filename.Split(".".ToCharArray()).First();
