@@ -23,8 +23,8 @@ public class FileExportEditor : EditorWindow
     private ThreedObjectControlEditor.RegisterFileType referenceSearchFilterFileExtention = ThreedObjectControlEditor.RegisterFileType.all;
     private string referenceExportFileName = "export";
 
-    private string searchRootDirectory = "Assets/Prefabs/";
-    private string exportDirectoryPath = "Assets/Prefabs/";
+    private string searchRootDirectory = "Assets/Unity3dModelControl/Prefabs/";
+    private string exportDirectoryPath = "Assets/Unity3dModelControl/Prefabs/";
     private int captureImageWidth = 128;
     private int captureImageHeight = 128;
     private int hierarchyNumber = 1;
