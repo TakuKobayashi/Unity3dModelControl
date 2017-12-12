@@ -6,11 +6,11 @@ public class UnityScriptableObject : ScriptableObject
 {
     [SerializeField] private UnityEngine.Object[] objects;
 
-    // Findする時に毎回、線形的に探すのはあまり良くないので、Dictionaryにキャッシュとしてためて、キャッシュにあればそこから取ってくる。(速度的にはDictionary > Listのため)
+    // Since it is not so good to search linearly every time you find it, it is cached as a cache in the Dictionary and it comes from there if it is in the cache.
     private Dictionary<string, UnityEngine.Object> loadObjectCacheDic = new Dictionary<string, UnityEngine.Object>();
 
     /// <summary>
-    /// <para>該当のPrefab名のPrefabを取得する</para>
+    /// <para>Acquire the Prefab of the corresponding Prefab name</para>
     /// </summary>
     public T Find<T>(string name) where T : UnityEngine.Object
     {
@@ -43,8 +43,7 @@ public class UnityScriptableObject : ScriptableObject
     }
 
     /// <summary>
-    /// <para>Cacheとして持っているPrefabの参照を解き放つ</para>
-    /// <para>※参照を解き放ったらGCが走ったときにメモリをクリアにしてくれるはず??</para>
+    /// <para>Unleash the reference of Prefab you have as Cache</para>
     /// </summary>
     public void CacheClear()
     {
