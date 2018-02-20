@@ -29,6 +29,7 @@ public class FileExportEditor : EditorWindow
     private int captureImageHeight = 128;
     private int hierarchyNumber = 1;
     private bool distoributeParentFlag = false;
+    private bool exportMaterialFiles = true;
 
     [MenuItem("Tools/FileExportEditor")]
     static void ShowSettingWindow()
@@ -40,7 +41,7 @@ public class FileExportEditor : EditorWindow
     {
         EditorGUILayout.BeginHorizontal();
         EditorGUILayout.LabelField("Export Mode");
-        FileExportEditor.Mode currentExportMode = (FileExportEditor.Mode) EditorGUILayout.EnumPopup((FileExportEditor.Mode) PlayerPrefs.GetInt("FileExportEditor_Export_Mode", (int) FileExportEditor.Mode.ConvertToPrefab));
+        FileExportEditor.Mode currentExportMode = (FileExportEditor.Mode)EditorGUILayout.EnumPopup((FileExportEditor.Mode)PlayerPrefs.GetInt("FileExportEditor_Export_Mode", (int)FileExportEditor.Mode.ConvertToPrefab));
         if (currentExportMode != exportMode)
         {
             exportMode = currentExportMode;
@@ -48,12 +49,23 @@ public class FileExportEditor : EditorWindow
         }
         EditorGUILayout.EndHorizontal();
 
+        if (exportMode == FileExportEditor.Mode.ConvertToPrefab)
+        {
+            GUILayout.BeginHorizontal();
+            int exportMaterialFileFlag = PlayerPrefs.GetInt("FileExportEditor_Export_Material_Files", 1);
+            EditorGUILayout.LabelField("Export with material files?");
+            exportMaterialFiles = EditorGUILayout.Toggle(exportMaterialFileFlag == 1);
+            PlayerPrefs.SetInt("FileExportEditor_Export_Material_Files", exportMaterialFiles ? 1 : 0);
+            EditorGUILayout.EndHorizontal();
+        }
+
         GUILayout.BeginHorizontal();
         EditorGUILayout.LabelField("Distribute with the parent directory?");
         distoributeParentFlag = EditorGUILayout.Toggle(distoributeParentFlag);
         EditorGUILayout.EndHorizontal();
 
-        if(distoributeParentFlag){
+        if (distoributeParentFlag)
+        {
             GUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Refer hierarchy parent number");
             hierarchyNumber = EditorGUILayout.IntField(hierarchyNumber);
@@ -96,19 +108,19 @@ public class FileExportEditor : EditorWindow
         {
             GUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Search File Extention");
-            threedObjectSearchFileExtention = (ThreedObjectControlEditor.SearchThreedObjectFileExtention)EditorGUILayout.Popup(PlayerPrefs.GetInt("FileExportEditor_Search_File_Extention", (int) threedObjectSearchFileExtention), values.ToArray());
-            PlayerPrefs.SetInt("FileExportEditor_Search_File_Extention", (int) threedObjectSearchFileExtention);
+            threedObjectSearchFileExtention = (ThreedObjectControlEditor.SearchThreedObjectFileExtention)EditorGUILayout.Popup(PlayerPrefs.GetInt("FileExportEditor_Search_File_Extention", (int)threedObjectSearchFileExtention), values.ToArray());
+            PlayerPrefs.SetInt("FileExportEditor_Search_File_Extention", (int)threedObjectSearchFileExtention);
             GUILayout.EndHorizontal();
         }
         else if (exportMode == FileExportEditor.Mode.RegisterAssetsReference)
         {
-            referenceSearchFilterFileExtention = (ThreedObjectControlEditor.RegisterFileType) PlayerPrefs.GetInt("FileExportEditor_Reference_Search_Filter_File_Extention", (int) referenceSearchFilterFileExtention);
+            referenceSearchFilterFileExtention = (ThreedObjectControlEditor.RegisterFileType)PlayerPrefs.GetInt("FileExportEditor_Reference_Search_Filter_File_Extention", (int)referenceSearchFilterFileExtention);
 
             GUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Search File Extention");
-            referenceSearchFilterFileExtention = (ThreedObjectControlEditor.RegisterFileType) EditorGUILayout.EnumPopup(referenceSearchFilterFileExtention);
+            referenceSearchFilterFileExtention = (ThreedObjectControlEditor.RegisterFileType)EditorGUILayout.EnumPopup(referenceSearchFilterFileExtention);
             GUILayout.EndHorizontal();
-            PlayerPrefs.SetInt("FileExportEditor_Reference_Search_Filter_File_Extention", (int) referenceSearchFilterFileExtention);
+            PlayerPrefs.SetInt("FileExportEditor_Reference_Search_Filter_File_Extention", (int)referenceSearchFilterFileExtention);
         }
         if (exportMode == FileExportEditor.Mode.RegisterAssetsReference && !distoributeParentFlag)
         {
@@ -120,7 +132,7 @@ public class FileExportEditor : EditorWindow
 
         GUILayout.BeginHorizontal();
         EditorGUILayout.LabelField("Export Directory");
-        exportDirectoryPath = (string) EditorGUILayout.TextField(PlayerPrefs.GetString("FileExportEditor_Export_Directory", exportDirectoryPath));
+        exportDirectoryPath = (string)EditorGUILayout.TextField(PlayerPrefs.GetString("FileExportEditor_Export_Directory", exportDirectoryPath));
         PlayerPrefs.SetString("FileExportEditor_Export_Directory", exportDirectoryPath);
         GUILayout.EndHorizontal();
 
@@ -128,16 +140,19 @@ public class FileExportEditor : EditorWindow
         {
             GUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Export File Extention");
-            imageExportFileExtention = (ThreedObjectControlEditor.ExportImageFileExtention) EditorGUILayout.EnumPopup((ThreedObjectControlEditor.ExportImageFileExtention) PlayerPrefs.GetInt("FileExportEditor_Export_File_Extention", (int)imageExportFileExtention));
-            PlayerPrefs.SetInt("FileExportEditor_Export_File_Extention", (int) imageExportFileExtention);
+            imageExportFileExtention = (ThreedObjectControlEditor.ExportImageFileExtention)EditorGUILayout.EnumPopup((ThreedObjectControlEditor.ExportImageFileExtention)PlayerPrefs.GetInt("FileExportEditor_Export_File_Extention", (int)imageExportFileExtention));
+            PlayerPrefs.SetInt("FileExportEditor_Export_File_Extention", (int)imageExportFileExtention);
             GUILayout.EndHorizontal();
-        }else if(exportMode == FileExportEditor.Mode.RegisterAssetsReference){
+        }
+        else if (exportMode == FileExportEditor.Mode.RegisterAssetsReference)
+        {
             GUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("Export File Extention");
             referenceExportFileExtention = (ThreedObjectControlEditor.ExportReferenceFileExtention)EditorGUILayout.EnumPopup((ThreedObjectControlEditor.ExportReferenceFileExtention)PlayerPrefs.GetInt("FileExportEditor_Export_Reference_File_Extention", (int)referenceExportFileExtention));
             PlayerPrefs.SetInt("FileExportEditor_Export_Reference_File_Extention", (int)referenceExportFileExtention);
             GUILayout.EndHorizontal();
         }
+        PlayerPrefs.Save();
         EditorGUILayout.BeginHorizontal();
         if (GUILayout.Button(new GUIContent("Execute")))
         {
@@ -149,7 +164,7 @@ public class FileExportEditor : EditorWindow
             }
             else if (exportMode == FileExportEditor.Mode.ConvertToPrefab)
             {
-                ThreedObjectControlEditor.ConvertToPrefab(searchRootDirectory, exportDirectoryPath, searchFileExtention: threedObjectSearchFileExtention, distoributeParentFlag: distoributeParentFlag, hierarchyNumber: hierarchyNumber);
+                ThreedObjectControlEditor.ConvertToPrefab(searchRootDirectory, exportDirectoryPath, searchFileExtention: threedObjectSearchFileExtention, distoributeParentFlag: distoributeParentFlag, isExportMaterialFiles: exportMaterialFiles, hierarchyNumber: hierarchyNumber);
             }
             else if (exportMode == FileExportEditor.Mode.DissociateAnimationClip)
             {
@@ -159,8 +174,7 @@ public class FileExportEditor : EditorWindow
             {
                 ThreedObjectControlEditor.RegisterAssetsReference(searchRootDirectory, exportDirectoryPath, exportFilePrefix: referenceExportFileName, registerFileType: referenceSearchFilterFileExtention, distoributeParentFlag: distoributeParentFlag, hierarchyNumber: hierarchyNumber, exportFileExtention: referenceExportFileExtention);
             }
-
-            GUILayout.EndHorizontal();
         }
+        GUILayout.EndHorizontal();
     }
 }

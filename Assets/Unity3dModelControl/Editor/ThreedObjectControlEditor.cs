@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
-using System.Reflection;
 
 public class ThreedObjectControlEditor
 {
@@ -64,11 +63,12 @@ public class ThreedObjectControlEditor
         audio
     }
 
-    public static void ConvertToPrefab(string searchRootDirectory, string exportDirectoryPath, SearchThreedObjectFileExtention searchFileExtention = SearchThreedObjectFileExtention.fbx, bool distoributeParentFlag = false, int hierarchyNumber = 1)
+    public static void ConvertToPrefab(string searchRootDirectory, string exportDirectoryPath, SearchThreedObjectFileExtention searchFileExtention = SearchThreedObjectFileExtention.fbx, bool isExportMaterialFiles = true, bool distoributeParentFlag = false, int hierarchyNumber = 1)
     {
         List<string> pathes = FindAllThreedSearchDirectory(searchRootDirectory, searchFileExtention);
 
         Dictionary<string, GameObject> pathToThreedObjects = new Dictionary<string, GameObject>();
+        Dictionary<string, List<Renderer>> pathToRendererList = new Dictionary<string, List<Renderer>>();
 
         for (int i = 0; i < pathes.Count; ++i)
         {
@@ -76,22 +76,79 @@ public class ThreedObjectControlEditor
             GameObject threedObject = AssetDatabase.LoadAssetAtPath<GameObject>(path);
             if (threedObject == null) continue;
             pathToThreedObjects.Add(path, threedObject);
+            if (isExportMaterialFiles)
+            {
+                pathToRendererList.Add(path, FindAllCompomentInChildren<Renderer>(threedObject.transform));
+            }
         }
 
+        Dictionary<string, Material> generatedMaterialFiles = new Dictionary<string, Material>();
+        Dictionary<Renderer, HashSet<Material>> attachDic = new Dictionary<Renderer, HashSet<Material>>();
         List<GameObject> generatedPrefabs = new List<GameObject>();
 
-        AssetDatabase.StartAssetEditing();
         foreach (KeyValuePair<string, GameObject> pathThreedObject in pathToThreedObjects)
         {
             string prefabFilePath = SetupAndGetPlaneFilePath(exportDirectoryPath, pathThreedObject.Key, distoributeParentFlag, hierarchyNumber) + ".prefab";
             if (File.Exists(prefabFilePath)) continue;
             GameObject generatedPrefab = PrefabUtility.CreatePrefab(prefabFilePath, pathThreedObject.Value);
             generatedPrefabs.Add(generatedPrefab);
+
+            if (isExportMaterialFiles)
+            {
+                //Prefabとして作成したものにあるRendererのListを取得する
+                List<Renderer> newRenderers = FindAllCompomentInChildren<Renderer>(generatedPrefab.transform);
+                if(generatedPrefab.GetComponent<Renderer>() != null){
+                    newRenderers.Add(generatedPrefab.GetComponent<Renderer>());
+                }
+                List<string> splitPathes = new List<string>(prefabFilePath.Split("/".ToCharArray()));
+                int joinArrayCount = Mathf.Max(splitPathes.Count - 1, 0);
+                if (distoributeParentFlag)
+                {
+                    joinArrayCount = Mathf.Max(splitPathes.Count - 2, 0);
+                }
+                string rootMaterialDirectoryPath = string.Join("/", splitPathes.GetRange(0, joinArrayCount).ToArray()) + "/Materials/";
+                List<Renderer> originRenderers = pathToRendererList[pathThreedObject.Key];
+                for (int i = 0; i < originRenderers.Count; ++i)
+                {
+                    Material[] mats = originRenderers[i].sharedMaterials;
+                    if (mats != null)
+                    {
+                        HashSet<Material> copyMaterials = new HashSet<Material>();
+                        for (int j = 0; j < mats.Length; ++j)
+                        {
+                            string materialFilePath = SetupAndGetPlaneFilePath(rootMaterialDirectoryPath, mats[j].name) + ".mat";
+                            if (File.Exists(materialFilePath))
+                            {
+                                copyMaterials.Add(generatedMaterialFiles[materialFilePath]);
+                            }
+                            else
+                            {
+                                Material copyMaterial = CopyAssetFile(materialFilePath, mats[j]);
+                                copyMaterials.Add(copyMaterial);
+                                generatedMaterialFiles.Add(materialFilePath, copyMaterial);
+                            }
+                        }
+                        attachDic.Add(newRenderers[i], copyMaterials);
+                    }
+                }
+            }
+        }
+        AssetDatabase.StartAssetEditing();
+        foreach (KeyValuePair<Renderer, HashSet<Material>> newRendererMaterials in attachDic)
+        {
+            newRendererMaterials.Key.materials = newRendererMaterials.Value.ToArray();
         }
         AssetDatabase.StopAssetEditing();
         for (int i = 0; i < generatedPrefabs.Count; ++i)
         {
             EditorUtility.SetDirty(generatedPrefabs[i]);
+        }
+        foreach (KeyValuePair<Renderer, HashSet<Material>> newRendererMaterials in attachDic)
+        {
+            foreach (Material mat in newRendererMaterials.Value)
+            {
+                EditorUtility.SetDirty(mat);
+            }
         }
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
@@ -129,25 +186,22 @@ public class ThreedObjectControlEditor
         foreach (KeyValuePair<string, List<AnimationClip>> pathClips in pathToAnimationClips)
         {
             string animRootFileNamePath = SetupAndGetPlaneFilePath(exportDirectoryPath, pathClips.Key, distoributeParentFlag, hierarchyNumber);
-            for (int i = 0; i < pathClips.Value.Count;++i){
+            for (int i = 0; i < pathClips.Value.Count; ++i)
+            {
                 string animFileName = animRootFileNamePath;
-                if(i > 0){
+                if (i > 0)
+                {
                     animFileName += i.ToString();
                 }
                 animFileName += ".anim";
                 if (File.Exists(animFileName)) continue;
-                AnimationClip copyClip = AnimationClip.Instantiate(pathClips.Value[i]);
-                AssetDatabase.CreateAsset(copyClip, animFileName + ".tmp");
-                File.Copy(animFileName + ".tmp", animFileName, true);
-                File.Delete(animFileName + ".tmp");
-                generatedClips.Add(copyClip);
+                generatedClips.Add(CopyAssetFile(animFileName, pathClips.Value[i]));
             }
         }
         for (int i = 0; i < generatedClips.Count; ++i)
         {
             EditorUtility.SetDirty(generatedClips[i]);
         }
-        AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
         Debug.Log("DissociateAnimationClip Count:" + generatedClips.Count);
     }
@@ -212,7 +266,7 @@ public class ThreedObjectControlEditor
             }
 
             // Output texture byte to file
-            string saveFilePath = SetupAndGetPlaneFilePath(exportDirectoryPath, pathToObj.Key, distoributeParentFlag, hierarchyNumber)+ "." + exportFileExtention.ToString();
+            string saveFilePath = SetupAndGetPlaneFilePath(exportDirectoryPath, pathToObj.Key, distoributeParentFlag, hierarchyNumber) + "." + exportFileExtention.ToString();
             if (exportFileExtention == ExportImageFileExtention.jpg)
             {
                 File.WriteAllBytes(saveFilePath, texture2D.EncodeToJPG());
@@ -252,15 +306,21 @@ public class ThreedObjectControlEditor
     {
         Type filterClassType = typeof(UnityEngine.Object);
         string filterWord = "*";
-        if(registerFileType == RegisterFileType.prefab){
+        if (registerFileType == RegisterFileType.prefab)
+        {
             filterWord = "prefab";
             filterClassType = typeof(GameObject);
-        }else if(registerFileType == RegisterFileType.anim){
+        }
+        else if (registerFileType == RegisterFileType.anim)
+        {
             filterWord = "anim";
             filterClassType = typeof(AnimationClip);
-        }else if(registerFileType == RegisterFileType.audio){
+        }
+        else if (registerFileType == RegisterFileType.audio)
+        {
             filterClassType = typeof(AudioClip);
-        }else if (registerFileType == RegisterFileType.sprite)
+        }
+        else if (registerFileType == RegisterFileType.sprite)
         {
             filterClassType = typeof(Sprite);
         }
@@ -286,8 +346,9 @@ public class ThreedObjectControlEditor
                 prefixFileName = splitPath[splitPath.Length - (hierarchyNumber + 1)];
             }
             string filePrefix = exportDirectoryPath + prefixFileName;
-            if(!filePrefixObjectList.ContainsKey(filePrefix)){
-                filePrefixObjectList.Add(filePrefix,  new List<UnityEngine.Object>());
+            if (!filePrefixObjectList.ContainsKey(filePrefix))
+            {
+                filePrefixObjectList.Add(filePrefix, new List<UnityEngine.Object>());
             }
             filePrefixObjectList[filePrefix].Add(objectToPath.Key);
         }
@@ -297,33 +358,45 @@ public class ThreedObjectControlEditor
             filePrefixObject.Value.Sort((a, b) => string.Compare(a.name, b.name));
         }
 
-        if(exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.asset){
+        if (exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.asset)
+        {
             List<UnityEngine.Object> dbList = new List<UnityEngine.Object>();
             AssetDatabase.StartAssetEditing();
-            foreach(KeyValuePair<string, List<UnityEngine.Object>> filePrefixObject in filePrefixObjectList){
+            foreach (KeyValuePair<string, List<UnityEngine.Object>> filePrefixObject in filePrefixObjectList)
+            {
                 UnityScriptableObject db = LoadOrCreateDB(filePrefixObject.Key + ".asset", typeof(UnityScriptableObject)) as UnityScriptableObject;
                 db.SetObjects(filePrefixObject.Value.ToArray());
                 dbList.Add(db);
             }
             AssetDatabase.StopAssetEditing();
-            for (int i = 0; i < dbList.Count;++i){
+            for (int i = 0; i < dbList.Count; ++i)
+            {
                 EditorUtility.SetDirty(dbList[i]);
             }
-        }else if(exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.csv || exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.json){
+        }
+        else if (exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.csv || exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.json)
+        {
             foreach (KeyValuePair<string, List<UnityEngine.Object>> filePrefixObject in filePrefixObjectList)
             {
                 List<string> filePathes = new List<string>();
                 List<UnityEngine.Object> gameObjectList = filePrefixObject.Value.ToList();
-                for (int i = 0;i < gameObjectList.Count;++i){
+                for (int i = 0; i < gameObjectList.Count; ++i)
+                {
                     filePathes.Add(objectToPathes[gameObjectList[i]]);
                 }
 
-                if(exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.csv){
+                if (exportFileExtention == ThreedObjectControlEditor.ExportReferenceFileExtention.csv)
+                {
                     File.WriteAllText(filePrefixObject.Key + ".csv", string.Join("\n", filePathes.ToArray()));
-                }else{
-                    if(filePathes.Count > 0){
+                }
+                else
+                {
+                    if (filePathes.Count > 0)
+                    {
                         File.WriteAllText(filePrefixObject.Key + ".json", "[\"" + string.Join("\",\"", filePathes.ToArray()) + "\"]");
-                    }else{
+                    }
+                    else
+                    {
                         File.WriteAllText(filePrefixObject.Key + ".json", "[]");
                     }
                 }
@@ -362,7 +435,7 @@ public class ThreedObjectControlEditor
             objectRenderers.Add(go, renderers[targetIndex]);
         }
         AssetDatabase.StartAssetEditing();
-        foreach(KeyValuePair<GameObject, Renderer> objectRenderer in objectRenderers)
+        foreach (KeyValuePair<GameObject, Renderer> objectRenderer in objectRenderers)
         {
             GameObject go = objectRenderer.Key;
             Renderer meshRenderer = objectRenderer.Value;
@@ -420,7 +493,8 @@ public class ThreedObjectControlEditor
 
     public static void AttachColliderWiddestSize(string searchRootDirectory,
                                                  ThreedObjectControlEditor.FilterMeshRendererTypes filterMeshRendererTypes = ThreedObjectControlEditor.FilterMeshRendererTypes.OnlySkinnedMeshRenderer,
-                                                 ThreedObjectControlEditor.AttachColliderTypes attachColliderTypes = ThreedObjectControlEditor.AttachColliderTypes.BoxCollider){
+                                                 ThreedObjectControlEditor.AttachColliderTypes attachColliderTypes = ThreedObjectControlEditor.AttachColliderTypes.BoxCollider)
+    {
         List<string> pathes = FindAllThreedSearchDirectory(searchRootDirectory, SearchThreedObjectFileExtention.prefab);
         Dictionary<GameObject, KeyValuePair<Vector3, Vector3>> objectMinMaxPositions = new Dictionary<GameObject, KeyValuePair<Vector3, Vector3>>();
         for (int i = 0; i < pathes.Count; ++i)
@@ -433,7 +507,8 @@ public class ThreedObjectControlEditor
             Vector3 minimumPosition = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
             Vector3 maximumPosition = new Vector3(float.MinValue, float.MinValue, float.MinValue);
             bool isAttachCollider = false;
-            for (int j = 0; j < renderers.Count;++j){
+            for (int j = 0; j < renderers.Count; ++j)
+            {
                 isAttachCollider = true;
 
                 Bounds bounds = renderers[j].bounds;
@@ -462,7 +537,8 @@ public class ThreedObjectControlEditor
                     maximumPosition.z = bounds.center.z + bounds.extents.z;
                 }
             }
-            if(isAttachCollider){
+            if (isAttachCollider)
+            {
                 objectMinMaxPositions.Add(go, new KeyValuePair<Vector3, Vector3>(minimumPosition, maximumPosition));
             }
         }
@@ -524,7 +600,8 @@ public class ThreedObjectControlEditor
         Debug.Log("Attach and edit the widdest colliders:" + objectMinMaxPositions.Count);
     }
 
-    private static List<Renderer> LoadMeshRenderers(GameObject go, ThreedObjectControlEditor.FilterMeshRendererTypes filterMeshRendererTypes = ThreedObjectControlEditor.FilterMeshRendererTypes.OnlySkinnedMeshRenderer){
+    private static List<Renderer> LoadMeshRenderers(GameObject go, ThreedObjectControlEditor.FilterMeshRendererTypes filterMeshRendererTypes = ThreedObjectControlEditor.FilterMeshRendererTypes.OnlySkinnedMeshRenderer)
+    {
         List<Renderer> renderers = new List<Renderer>();
         if (filterMeshRendererTypes == ThreedObjectControlEditor.FilterMeshRendererTypes.OnlySkinnedMeshRenderer || filterMeshRendererTypes == ThreedObjectControlEditor.FilterMeshRendererTypes.BothMeshRenderer)
         {
@@ -567,7 +644,7 @@ public class ThreedObjectControlEditor
         return db;
     }
 
-    private static List<string> FindAllThreedSearchDirectory(string searchRootDirectory, SearchThreedObjectFileExtention searchFileExtention = SearchThreedObjectFileExtention.fbx)
+    public static List<string> FindAllThreedSearchDirectory(string searchRootDirectory, SearchThreedObjectFileExtention searchFileExtention = SearchThreedObjectFileExtention.fbx)
     {
         string extension = searchFileExtention.ToString();
         if (searchFileExtention == SearchThreedObjectFileExtention.threeds)
@@ -577,7 +654,7 @@ public class ThreedObjectControlEditor
         return FindAllThreedSearchDirectory(searchRootDirectory, extension);
     }
 
-    private static List<string> FindAllThreedSearchDirectory(string searchRootDirectory, string extension)
+    public static List<string> FindAllThreedSearchDirectory(string searchRootDirectory, string extension)
     {
         List<string> seachedFilePathes = new List<string>();
         string[] pathes = AssetDatabase.GetAllAssetPaths();
@@ -593,7 +670,8 @@ public class ThreedObjectControlEditor
         return seachedFilePathes;
     }
 
-    private static string SetupAndGetPlaneFilePath(string exportDirectoryPath, string targetFilePath, bool distoributeParentFlag = false, int hierarchyNumber = 1){
+    private static string SetupAndGetPlaneFilePath(string exportDirectoryPath, string targetFilePath, bool distoributeParentFlag = false, int hierarchyNumber = 1)
+    {
         string[] splitPath = targetFilePath.Split("/".ToCharArray());
         string filename = splitPath.Last();
         string plainFilename = filename.Split(".".ToCharArray()).First();
@@ -621,6 +699,14 @@ public class ThreedObjectControlEditor
                 Directory.CreateDirectory(filePath);
             }
         }
+    }
+
+    private static T CopyAssetFile<T>(string filePath, T originAsset) where T : UnityEngine.Object
+    {
+        T copyAssetFile = UnityEngine.Object.Instantiate<T>(originAsset);
+        AssetDatabase.CreateAsset(copyAssetFile, filePath);
+        AssetDatabase.Refresh();
+        return copyAssetFile;
     }
 
     private static List<T> FindAllCompomentInChildren<T>(Transform root) where T : class
