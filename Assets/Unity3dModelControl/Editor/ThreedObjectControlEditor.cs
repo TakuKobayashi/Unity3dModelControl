@@ -78,12 +78,17 @@ public class ThreedObjectControlEditor
             pathToThreedObjects.Add(path, threedObject);
             if (isExportMaterialFiles)
             {
-                pathToRendererList.Add(path, FindAllCompomentInChildren<Renderer>(threedObject.transform));
+                List<Renderer> threedObjectRenderers = FindAllCompomentInChildren<Renderer>(threedObject.transform);
+                if (threedObject.GetComponent<Renderer>() != null)
+                {
+                    threedObjectRenderers.Add(threedObject.GetComponent<Renderer>());
+                }
+                pathToRendererList.Add(path, threedObjectRenderers);
             }
         }
 
         Dictionary<string, Material> generatedMaterialFiles = new Dictionary<string, Material>();
-        Dictionary<Renderer, HashSet<Material>> attachDic = new Dictionary<Renderer, HashSet<Material>>();
+        Dictionary<Renderer, List<Material>> attachDic = new Dictionary<Renderer, List<Material>>();
         List<GameObject> generatedPrefabs = new List<GameObject>();
 
         foreach (KeyValuePair<string, GameObject> pathThreedObject in pathToThreedObjects)
@@ -95,7 +100,7 @@ public class ThreedObjectControlEditor
 
             if (isExportMaterialFiles)
             {
-                //Prefabとして作成したものにあるRendererのListを取得する
+                //Get new Prefabs Renderer
                 List<Renderer> newRenderers = FindAllCompomentInChildren<Renderer>(generatedPrefab.transform);
                 if(generatedPrefab.GetComponent<Renderer>() != null){
                     newRenderers.Add(generatedPrefab.GetComponent<Renderer>());
@@ -113,7 +118,7 @@ public class ThreedObjectControlEditor
                     Material[] mats = originRenderers[i].sharedMaterials;
                     if (mats != null)
                     {
-                        HashSet<Material> copyMaterials = new HashSet<Material>();
+                        List<Material> copyMaterials = new List<Material>();
                         for (int j = 0; j < mats.Length; ++j)
                         {
                             string materialFilePath = SetupAndGetPlaneFilePath(rootMaterialDirectoryPath, mats[j].name) + ".mat";
@@ -134,7 +139,7 @@ public class ThreedObjectControlEditor
             }
         }
         AssetDatabase.StartAssetEditing();
-        foreach (KeyValuePair<Renderer, HashSet<Material>> newRendererMaterials in attachDic)
+        foreach (KeyValuePair<Renderer, List<Material>> newRendererMaterials in attachDic)
         {
             newRendererMaterials.Key.materials = newRendererMaterials.Value.ToArray();
         }
@@ -143,7 +148,7 @@ public class ThreedObjectControlEditor
         {
             EditorUtility.SetDirty(generatedPrefabs[i]);
         }
-        foreach (KeyValuePair<Renderer, HashSet<Material>> newRendererMaterials in attachDic)
+        foreach (KeyValuePair<Renderer, List<Material>> newRendererMaterials in attachDic)
         {
             foreach (Material mat in newRendererMaterials.Value)
             {
